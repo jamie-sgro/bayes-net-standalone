@@ -32,9 +32,10 @@ setwd(getwd())
 
 if (standalone) {
   source(paste(getwd(),"/fsoPath.dat", sep = ""))
-  mainData = read.csv(filePath)
+  mainData = read.csv(filePath,
+                      fileEncoding="UTF-8-BOM")
 } else {
-  mainData = read.csv("hcp_dataset.csv",
+  mainData = read.csv("data/hcp_dataset.csv",
                       fileEncoding="UTF-8-BOM")
 }
 
@@ -57,8 +58,6 @@ if (length(which(is.na(mainData))) > 0) {
   print(paste("Removed", length(which(is.na(mainData))), "incomplete cases."))
   mainData = mainData[complete.cases(mainData),]
 }
-
-set.seed(963522132)
 
 #Get Subset
 if (subData) {
@@ -119,7 +118,20 @@ getModString = function(rawData) {
   n = length(rawData)
   modNet = ""
   for (i in 1:n) {
-    modNet = paste(modNet, "[", names(rawData[i]), "]", sep = "")
+    varName = names(rawData[i])
+    if (nchar(varName) > 50) {
+      errMsg = paste("The variable in column", i , "exceeds the maximum number of characters")
+      if (standalone) {
+        tcltk::tk_messageBox(message = errMsg,
+                             type="ok",
+                             icon="error")
+        stopApp()
+        q("no")
+      } else {
+        stop(errMsg, call. = FALSE)
+      }
+    }
+    modNet = paste(modNet, "[", varName, "]", sep = "")
   }
   return(modNet)
 }
@@ -172,37 +184,46 @@ addEdge = function(input, output, edgeDf) {
   #create a new dataframe to append to edgelist
   newEdge = getNewEdge(input$myNetId_graphChange, edgeDf)
   
+  #update dag
+  dag <<- set.arc(dag,
+                  newEdge$from,
+                  newEdge$to,
+                  debug = F)
+  
+  edgeDf <<- rbind(edgeDf, newEdge)
+  
+  #update nodeStruc
+  addChildParent(newEdge)
+}
+
+validEdge = function(input, edgeDf) {
+  newEdge = getNewEdge(input$myNetId_graphChange, edgeDf)
+  nParents = length(nodeStruc[[newEdge$to]][["myParent"]])
+  
   if (isDuplicate(edgeDf, newEdge)) {
     visNetworkProxy("myNetId") %>%
       visRemoveEdges(id = input$myNetId_graphChange$id)
-    output$shiny_return <- renderPrint({
-      print("Cannot create duplicate edge.")
-    })
-  } else if (length(nodeStruc[[newEdge$to]][["myParent"]]) == 5) {
+    return("Cannot create duplicate edge.")
+  } else if (nParents == 5) {
     visNetworkProxy("myNetId") %>%
       visRemoveEdges(id = input$myNetId_graphChange$id)
-    output$shiny_return <- renderPrint({
-      print("Maximum number of parents reached for this node")
-    })
+    return("Maximum number of parents reached for this node")
   } else {
-    #update dag
+    pdag = NULL
+    pdag = model2network(modelstring(dag))
+    #check cyclic on dummy var
     arcError = tryCatch({
-      dag <<- set.arc(dag,
+      pdag <- set.arc(pdag,
                       newEdge$from,
                       newEdge$to,
                       debug = F)
-      edgeDf <<- rbind(edgeDf, newEdge)
       
-      #update nodeStruc
-      addChildParent(newEdge)
-      
+      return(NULL)
     }, error = function(e) {
       #Cyclical error
       visNetworkProxy("myNetId") %>%
         visRemoveEdges(id = input$myNetId_graphChange$id)
-      output$shiny_return <- renderPrint({
-        print("Error: The resulting graph contains cycles.")
-      })
+      return("The resulting graph contains cycles.")
     })
   }
 }
@@ -823,7 +844,8 @@ sidebar = dashboardSidebar(width = "400px",
 
 body = dashboardBody(
   tabBox(
-    side = "right", height = "485px", width = "200px",
+    side = "right",
+    height = "485px", width = "200px",
     id = "bodyTab",
     selected = "Network",
     tabPanel("Set CPT",
@@ -836,7 +858,9 @@ body = dashboardBody(
              plotOutput("priorPlot")
     ),
     tabPanel("Network",
-             visNetworkOutput("myNetId",height = "450px", width = "480"))
+             visNetworkOutput("myNetId",
+                              height = "450px", width = "480"
+             ))
   ),
   h4("Prior Beta Distribution"),
   # sliderInput(inputId = "ciSlider",
@@ -965,11 +989,19 @@ server <- function(input, output, session) {
     cmd = input$myNetId_graphChange$cmd
     if (valid(cmd)) {
       if (cmd == "addEdge") {
-        addEdge(input, output, edgeDf)
+        errMsg = validEdge(input, edgeDf)
+        if (is.null(errMsg)) {
+          addEdge(input, output, edgeDf)
+          updateSidbarUi(input, output, dag, mainData)
+        } else {
+          output$shiny_return <- renderPrint({
+            print(errMsg)
+          })
+        }
       } else if (cmd == "deleteElements") {
         deleteEdge(input, edgeDf)
+        updateSidbarUi(input, output, dag, mainData)
       }
-      updateSidbarUi(input, output, dag, mainData)
     }
   })
   
@@ -998,9 +1030,9 @@ server <- function(input, output, session) {
   
   observeEvent(input$debugButton, {
     #print(arc.strength(dag, mainData))
-    #print(score(dag, mainData))
+    print(dag)
     #print(edgeDf)
-    print(nodeStruc)
+    #print(nodeStruc)
   })
   
   observeEvent(input$learnNetButton, {
@@ -1137,7 +1169,7 @@ server <- function(input, output, session) {
   
   if (standalone) {
     # close the R session when Chrome closes
-    session$onSessionEnded(function() {
+    session$onSessionEnded(function() { 
       stopApp()
       q("no")
     })
