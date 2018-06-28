@@ -34,7 +34,7 @@ if (standalone) {
   source(paste(getwd(),"/fsoPath.dat", sep = ""))
   mainData = read.csv(filePath)
 } else {
-  mainData = read.csv("HCP Household Heads Prop Sample.V2.csv",
+  mainData = read.csv("hcp_dataset.csv",
                       fileEncoding="UTF-8-BOM")
 }
 
