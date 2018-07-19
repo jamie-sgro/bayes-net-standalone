@@ -138,6 +138,7 @@ getModString = function(rawData) {
 
 getEdgeList = function(tempDag, rawData) {
   rawArcStrength = arc.strength(tempDag, rawData)
+  
   n = nrow(arc.strength(tempDag, rawData))
   if (n == 0) {
     edgeList = data.frame(from = character(),
@@ -204,10 +205,10 @@ validEdge = function(input, edgeDf) {
     visNetworkProxy("myNetId") %>%
       visRemoveEdges(id = input$myNetId_graphChange$id)
     return("Cannot create duplicate edge.")
-  } else if (nParents == 5) {
-    visNetworkProxy("myNetId") %>%
-      visRemoveEdges(id = input$myNetId_graphChange$id)
-    return("Maximum number of parents reached for this node")
+    # } else if (nParents == 5) {
+    #   visNetworkProxy("myNetId") %>%
+    #     visRemoveEdges(id = input$myNetId_graphChange$id)
+    #   return("Maximum number of parents reached for this node")
   } else {
     pdag = NULL
     pdag = model2network(modelstring(dag))
@@ -576,86 +577,38 @@ getMultiPosterior = function(nameList, resp, db) {
   #Permutate all 'either' responses up to 3
   nEither = length(eitherIndex)
   cpt = vector()
-  if (nEither > 3) {
-    print("CP tables must be limited to three dimensions")
-    return()
+  
+  if (nEither > 0) {
+    #either = 1 to 3
+    cpt = combinate(cpt, p, eitherIndex, v, nameList, resp, respIndex, nEither)
     
-    ##3##
-  } else if (nEither == 3) {
-    for (ni in 1:2) {
-      p[eitherIndex[3]] = list(v[[eitherIndex[3]]] == levels(v[[eitherIndex[3]]])[ni])
-      for (nii in 1:2) {
-        p[eitherIndex[2]] = list(v[[eitherIndex[2]]] == levels(v[[eitherIndex[2]]])[nii])
-        for (niii in 1:2) {
-          p[eitherIndex[1]] = list(v[[eitherIndex[1]]] == levels(v[[eitherIndex[1]]])[niii])
-          
-          #This info should be stored somewhere
-          if(resp[1] == "Either") {
-            pNot = v[[1]] != levels(v[[1]])[niii]
-            childState = niii
-          } else {
-            pNot = v[[1]] != levels(v[[1]])[respIndex[1]]
-            childState = respIndex[1]
-          }
-          
-          cpt = c(cpt, getInteractionProb(n, p, pNot, v, nameList, childState))
-        } 
-      }
-    }
     cpt = as.matrix(cpt)
-    dim(cpt) = c(2, 2, 2)
-    dimnames(cpt) = list(levels(v[[eitherIndex[1]]]), levels(v[[eitherIndex[2]]]), levels(v[[eitherIndex[3]]]))
-    names(dimnames(cpt)) = list(nameList[eitherIndex[1]], nameList[eitherIndex[2]], nameList[eitherIndex[3]]) 
+    dim(cpt) = generateList(nEither, 2)
     
-    ##2##
-  } else if (nEither == 2) {
-    for (ni in 1:2) {
-      p[eitherIndex[2]] = list(v[[eitherIndex[2]]] == levels(v[[eitherIndex[2]]])[ni])
-      for (nii in 1:2) {
-        p[eitherIndex[1]] = list(v[[eitherIndex[1]]] == levels(v[[eitherIndex[1]]])[nii])
-        
-        if(resp[1] == "Either") {
-          pNot = v[[1]] != levels(v[[1]])[nii]
-          childState = nii
-        } else {
-          pNot = v[[1]] != levels(v[[1]])[respIndex[1]]
-          childState = respIndex[1]
-        }
-        
-        cpt = c(cpt, getInteractionProb(n, p, pNot, v, nameList, childState))
-      }
+    cptName = list()
+    for (i in 1:length(eitherIndex)) {
+      cptName[[i]] = levels(v[[eitherIndex[i]]])
     }
-    cpt = as.matrix(cpt)
-    dim(cpt) = c(2, 2)
-    dimnames(cpt) = list(levels(v[[eitherIndex[1]]]), levels(v[[eitherIndex[2]]]))
-    names(dimnames(cpt)) = list(nameList[eitherIndex[1]], nameList[eitherIndex[2]])
     
-    ##1##
-  } else if (nEither == 1) {
-    for (ni in 1:2) {
-      p[eitherIndex[1]] = list(v[[eitherIndex[1]]] == levels(v[[eitherIndex[1]]])[ni])
-      
-      if(resp[1] == "Either") {
-        pNot = v[[1]] != levels(v[[1]])[ni]
-        childState = ni
-      } else {
-        pNot = v[[1]] != levels(v[[1]])[respIndex[1]]
-        childState = respIndex[1]
-      }
-      
-      cpt = c(cpt, getInteractionProb(n, p, pNot, v, nameList, childState))
+    dimnames(cpt) = cptName
+    
+    nameDim = list()
+    for (i in 1:length(eitherIndex)) {
+      nameDim[[i]] = nameList[eitherIndex[i]]
     }
-    cpt = as.matrix(cpt)
-    dim(cpt) = 2
-    dimnames(cpt) = list(levels(v[[eitherIndex]]))
-    names(dimnames(cpt)) = list(nameList[eitherIndex[1]])
     
+    names(dimnames(cpt)) = nameDim
     ##0##
-  } else if (nEither < 1) {
-    respIndexNot = which(levels(v[[1]]) == resp[1])
-    pNot = v[[1]] != levels(v[[1]])[respIndexNot]
+  } else {
+    prior = nodeStruc[[nameList[1]]][["postMean"]]
     
-    cpt = c(cpt, getInteractionProb(n, p, pNot, v, nameList, respIndexNot))
+    if (respIndex[1] == 2) {
+      if (valid(prior)) {
+        prior = 1 - prior
+      }
+    }
+    
+    cpt = c(cpt, getInteractionProb(p, prior))
     cpt = as.matrix(cpt)
     #Assume the selected node is the one they want
     dimnames(cpt) = list(resp[1], nameList[1])
@@ -682,14 +635,10 @@ getMultiPosterior = function(nameList, resp, db) {
   }
 }
 
-getInteractionProb = function(n, p, pNot, v, nameList, responseIndex) {
-  prior = nodeStruc[[nameList[1]]][["postMean"]]
-  
-  if (n > 1) {
+getInteractionProb = function(p, prior) {
+  numberOfVar = length(p)
+  if (numberOfVar > 1) {
     if (valid(prior)) {
-      if (responseIndex == 2) {
-        prior = 1 - prior
-      }
       
       #With Prior
       pa = length(which(p[[1]])) / length(p[[1]])
@@ -698,8 +647,10 @@ getInteractionProb = function(n, p, pNot, v, nameList, responseIndex) {
       
       #attach all logical vectors since Reduce() is finicky
       intersection = list()
-      intersection[[1]] = pNot
-      for (i in 2:n) {
+      
+      #get P(a') Not
+      intersection[[1]] = ifelse(p[[1]] == TRUE, FALSE, TRUE)
+      for (i in 2:numberOfVar) {
         intersection[i] = p[i]
       }
       
@@ -715,20 +666,58 @@ getInteractionProb = function(n, p, pNot, v, nameList, responseIndex) {
     }
   } else {
     if (valid(prior)) {
-      if (responseIndex == 2) {
-        prior = 1 - prior
-      }
       return(prior)
     } else {
       top = length(which(p[[1]]))
-      bottom =length(v[[1]])
+      bottom = length(p[[1]])
       return(top/bottom)
     }
   }
 }
 
+generateList = function(n, int) {
+  myVar = vector()
+  for (i in 1:n) {
+    myVar = c(myVar, int)
+  }
+  return(myVar)
+}
+
+combinate = function(cpt, p, eitherIndex, v, nameList, resp, respIndex, x, n) {
+  if (missing(n)) {
+    x = generateList(x, 1)
+    n = length(x)
+  }
+  
+  for (i in 1:2) {
+    x[n] = i
+    p[eitherIndex[n]] = list(v[[eitherIndex[n]]] == levels(v[[eitherIndex[n]]])[i])
+    
+    if (n != 1) {
+      cpt = combinate(cpt, p, eitherIndex, v, nameList, resp, respIndex, x, n-1)
+    } else {
+      #Main function
+      prior = nodeStruc[[nameList[1]]][["postMean"]]
+      
+      if (valid(prior)) {
+        if(resp[1] == "Either") {
+          if (i == 2) {
+            prior = 1 - prior
+          }
+          #Can respIndex be deduced from resp?
+        } else if (respIndex[1] == 2) {
+          prior = 1 - prior
+        }
+      }
+      
+      cpt = c(cpt, getInteractionProb(p, prior))
+    }
+  }
+  return(cpt)
+}
+
 getSelectState = function(input, output) {
-  if(valid(input$current_node_id)) {
+  if (valid(input$current_node_id)) {
     nodeLabel = idToLabel(input)
     
     parent = nodeStruc[[nodeLabel]][["myParent"]]
@@ -736,26 +725,31 @@ getSelectState = function(input, output) {
     #Parents and self
     nodesList = c(nodeLabel, parent)
     
-    if (length(nodesList) > 6) {
-      output$selectState <- renderUI({
-        print("Too many parents connected to a single node (>5)")
-      })
-      warning("Cannot process a node with more than 5 parents")
-      return()
-    }
+    # if (length(nodesList) > 6) {
+    #   output$selectState <- renderUI({
+    #     print("Too many parents connected to a single node (>5)")
+    #   })
+    #   warning("Cannot process a node with more than 5 parents")
+    #   return()
+    # }
     
     output$selectState <- renderUI({
       if(valid(input$current_node_id)) {
-        lapply(1:length(nodesList), function(i) {
-          response = levels(mainData[[nodesList[i]]])
-          selectInput(paste("select", as.character(i), sep = ""),
-                      nodesList[i],
-                      width = "25%",
-                      c(response[1], response[2], "Either"),
-                      selected = ifelse(i <= 3, "Either", response[1]))
-        })
-      }
+        box(height = 375, tags$head(tags$style(HTML("#selectState {
+                                                    overflow-y:scroll;
+                                                    max-height: 400px;
+                                                    max-width: 480px;
+      }"))),
+          lapply(1:length(nodesList), function(i) {
+            response = levels(mainData[[nodesList[i]]])
+            selectInput(paste("select", as.character(i), sep = ""),
+                        nodesList[i],
+                        c(response[1], response[2], "Either"),
+                        selected = "Either")
     })
+        )
+  }
+  })
   } else {
     output$selectState <- renderUI({
       print("Please select a node to generate conditional probability table (CPT)")
@@ -786,7 +780,25 @@ getScore = function(graph, data, output) {
 
 updateSidbarUi = function(input, output, dag, mainData) {
   if (input$useType == 'CP Table') {
-    printNodeProb(input, output)
+    clickType = getClickType(input)
+    
+    if (is.null(clickType)) {
+      output$shiny_return <- renderPrint({
+        print(paste("Bayesian Network Score:", round(score(dag,  mainData), 4)))
+      })
+    } else if (clickType == "node") {
+      printNodeProb(input, output)
+    } else if (clickType == "edge") {
+      edgeIndex = which(edgeDf$id == input$myNetId_selectedEdges)
+      
+      #TODO: when the last thing selected is an edge that's been deleted, it
+      #      returns a null edge df
+      #CPT radio selected
+      output$shiny_return <- renderPrint({
+        print(arc.strength(dag, mainData, criterion = "bic")[edgeIndex,])
+      })
+    }
+    
   } else if (input$useType == 'BN Score') {
     getScore(dag, mainData, output)
   }
@@ -822,7 +834,7 @@ sidebar = dashboardSidebar(width = "400px",
                                                            overflow-y:scroll;
                                                            max-height: 375px;
                                                            background: ghostwhite;
-                                                           }")))
+}")))
     ),
     conditionalPanel(
       condition = "input.useType == 'BN Score'",
@@ -837,7 +849,7 @@ sidebar = dashboardSidebar(width = "400px",
       ),
     #h3("Actions"),
     radioButtons("useType", "Select Output", c("CP Table", "BN Score")),
-    actionButton("debugButton", "Debug"),
+    actionButton("debugButton", "Freeze"),
     actionButton("learnNetButton", "Learn Network")
     #,actionButton("savePriorButton", "Save Priors")
       )
@@ -851,6 +863,7 @@ body = dashboardBody(
     tabPanel("Set CPT",
              id = "cptTab",
              uiOutput("selectState"),
+             #             div(style="display:inline-block", uiOutput("selectState")),
              uiOutput("saveState")
     ),
     tabPanel("Graph",
@@ -937,6 +950,7 @@ server <- function(input, output, session) {
       })
     } else if (input$bodyTab == "Set CPT") {
       observe({
+        #TODO: should not populate on neighboring edge selection
         getSelectState(input, output)
         getSaveState(input, output)
       })
@@ -966,7 +980,7 @@ server <- function(input, output, session) {
       
       #CPT radio selected
       output$shiny_return <- renderPrint({
-        print(arc.strength(dag, mainData)[edgeIndex,])
+        print(arc.strength(dag, mainData, criterion = "bic")[edgeIndex,])
       })
     }
   })
@@ -986,6 +1000,7 @@ server <- function(input, output, session) {
   
   #Display manipulate data
   observeEvent (input$myNetId_graphChange, {
+    print(input$myNetId_graphChange)
     cmd = input$myNetId_graphChange$cmd
     if (valid(cmd)) {
       if (cmd == "addEdge") {
@@ -1000,7 +1015,14 @@ server <- function(input, output, session) {
         }
       } else if (cmd == "deleteElements") {
         deleteEdge(input, edgeDf)
-        updateSidbarUi(input, output, dag, mainData)
+        print(getClickType(input))
+        
+        output$shiny_return <- renderPrint({
+          print(paste("Bayesian Network Score:", round(score(dag,  mainData), 4)))
+        })
+      } else if (cmd == "deleteCanceled") {
+        visNetworkProxy("myNetId") %>%
+          visOptions(manipulation = TRUE)
       }
     }
   })
@@ -1029,8 +1051,21 @@ server <- function(input, output, session) {
   ############### #
   
   observeEvent(input$debugButton, {
-    #print(arc.strength(dag, mainData))
-    print(dag)
+    #switch Physics
+    if (exists("phys")) {
+      if (phys) {
+        phys <<- FALSE
+      } else {
+        phys <<- TRUE
+      }
+    } else {
+      phys <<- FALSE
+    }
+    
+    visNetworkProxy("myNetId") %>%
+      visPhysics(enabled = phys)
+    print(arc.strength(dag, mainData, criterion = "bic"))
+    #print(dag)
     #print(edgeDf)
     #print(nodeStruc)
   })
@@ -1163,7 +1198,7 @@ server <- function(input, output, session) {
     }
     
     output$shiny_return <- renderPrint({
-      getMultiPosterior(nodesList, responseList, mainData)
+    getMultiPosterior(nodesList, responseList, mainData)
     })
   })
   
